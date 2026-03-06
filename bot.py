@@ -8,7 +8,7 @@ from aiogram.utils import executor
 
 # ================= CONFIG =================
 
-TOKEN = os.environ.get("8417205211:AAGaxbcp_EaO4ddv6QEiFEtzPgLQDhVrw0E")
+TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "7334992081"))
 
 CHANNELS = [
