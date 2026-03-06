@@ -4,7 +4,7 @@ import sqlite3
 import time
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+
 
 # ================= CONFIG =================
 
