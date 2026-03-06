@@ -292,5 +292,10 @@ async def create_redeem(message: types.Message):
 
 # ================= RUN =================
 
+import asyncio
+
+async def main():
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main()
