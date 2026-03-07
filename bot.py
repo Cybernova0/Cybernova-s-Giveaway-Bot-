@@ -22,6 +22,8 @@ CHANNELS = [
     "@CYBERNOVA0"
 ]
 
+REF_REWARD = 10
+
 # ================= INIT =================
 
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +45,12 @@ CREATE TABLE IF NOT EXISTS users(
 user_id INTEGER PRIMARY KEY,
 points INTEGER DEFAULT 0,
 ref INTEGER
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS used_ref(
+user_id INTEGER PRIMARY KEY
 )
 """)
 
@@ -71,7 +79,7 @@ menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ================= FORCE JOIN =================
+# ================= HELPERS =================
 
 async def check_sub(user_id: int):
     try:
@@ -82,7 +90,6 @@ async def check_sub(user_id: int):
         return True
     except:
         return False
-
 
 def join_kb():
     return InlineKeyboardMarkup(
@@ -129,12 +136,25 @@ async def start(message: types.Message):
 
         conn.commit()
 
+        # Referral reward only once
         if ref:
             cursor.execute(
-                "UPDATE users SET points=points+10 WHERE user_id=?",
-                (ref,)
+                "SELECT * FROM used_ref WHERE user_id=?",
+                (user_id,)
             )
-            conn.commit()
+
+            if not cursor.fetchone():
+                cursor.execute(
+                    "UPDATE users SET points=points+? WHERE user_id=?",
+                    (REF_REWARD, ref)
+                )
+
+                cursor.execute(
+                    "INSERT INTO used_ref(user_id) VALUES(?)",
+                    (user_id,)
+                )
+
+                conn.commit()
 
     if not await check_sub(user_id):
         await message.answer(
@@ -157,6 +177,44 @@ async def checksub(call: types.CallbackQuery):
         await call.message.answer("✅ Verified", reply_markup=menu)
     else:
         await call.answer("❌ Not joined", show_alert=True)
+
+# ================= REFERRAL =================
+
+@dp.message(lambda m: m.text == "👥 Referral")
+async def referral(message: types.Message):
+
+    user_id = message.from_user.id
+
+    link = f"https://t.me/{(await bot.me()).username}?start={user_id}"
+
+    await message.answer(
+        f"""
+👥 Referral System
+
+Your link:
+{link}
+
+🎁 Earn {REF_REWARD} points per referral
+"""
+    )
+
+# ================= LEADERBOARD =================
+
+@dp.message(lambda m: m.text == "🏆 Leaderboard")
+async def leaderboard(message: types.Message):
+
+    cursor.execute(
+        "SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10"
+    )
+
+    data = cursor.fetchall()
+
+    text = "🏆 Leaderboard\n\n"
+
+    for i, row in enumerate(data, start=1):
+        text += f"{i}. {row[0]} — {row[1]} pts\n"
+
+    await message.answer(text)
 
 # ================= BALANCE =================
 
@@ -260,29 +318,6 @@ async def redeem(message: types.Message):
     conn.commit()
 
     await message.answer(f"✅ Redeemed {reward} points")
-
-# ================= ADMIN =================
-
-@dp.message(lambda m: m.text.startswith("/givepoints"))
-async def givepoints(message: types.Message):
-
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    try:
-        _, uid, pts = message.text.split()
-
-        cursor.execute(
-            "UPDATE users SET points=points+? WHERE user_id=?",
-            (int(pts), int(uid))
-        )
-
-        conn.commit()
-
-        await message.answer("✅ Points given")
-
-    except:
-        await message.answer("Usage: /givepoints user_id points")
 
 # ================= RUN =================
 
