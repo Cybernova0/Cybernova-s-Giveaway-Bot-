@@ -4,7 +4,12 @@ import sqlite3
 import asyncio
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import *
+from aiogram.types import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
 from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
@@ -12,14 +17,17 @@ from aiogram.client.default import DefaultBotProperties
 TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "7334992081"))
 
-CHANNELS = ["@HackingToolshere", "@CYBERNOVA0"]
+CHANNELS = [
+    "@HackingToolshere",
+    "@CYBERNOVA0"
+]
 
 REF_REWARD = 2
 
-# Prize cost
-PRIZES = {
+# Prize Costs
+PRIZE_COSTS = {
     "netflix": 50,
-    "whatsapp": 30,
+    "whatsapp": 40,
     "airtime": 20
 }
 
@@ -53,16 +61,23 @@ user_id INTEGER PRIMARY KEY
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS prize_requests(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+user_id INTEGER,
+prize TEXT
+)
+""")
+
 conn.commit()
 
 # ================= MENU =================
 
 menu = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="💰 Balance"),
-         KeyboardButton(text="🎁 Giveaway")],
-        [KeyboardButton(text="👥 Referral"),
-         KeyboardButton(text="🏆 Leaderboard")]
+        [KeyboardButton(text="💰 Balance"), KeyboardButton(text="🎁 Giveaway")],
+        [KeyboardButton(text="👥 Referral"), KeyboardButton(text="👨‍💻 Contact Developer")],
+        [KeyboardButton(text="📊 Admin Dashboard")]
     ],
     resize_keyboard=True
 )
@@ -79,14 +94,11 @@ async def check_sub(user_id):
     except:
         return False
 
-
 def join_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Join Channels",
-                                  url="https://t.me/HackingToolshere")],
-            [InlineKeyboardButton(text="✅ Check",
-                                  callback_data="checksub")]
+            [InlineKeyboardButton(text="📢 Join Channels", url="https://t.me/HackingToolshere")],
+            [InlineKeyboardButton(text="✅ Check", callback_data="checksub")]
         ]
     )
 
@@ -119,11 +131,7 @@ async def start(message: types.Message):
 
         # Referral reward once
         if ref:
-            cursor.execute(
-                "SELECT * FROM used_ref WHERE user_id=?",
-                (user_id,)
-            )
-
+            cursor.execute("SELECT * FROM used_ref WHERE user_id=?", (user_id,))
             if not cursor.fetchone():
                 cursor.execute(
                     "UPDATE users SET points=points+? WHERE user_id=?",
@@ -143,48 +151,30 @@ async def start(message: types.Message):
 
     await message.answer("🎉 Welcome Giveaway Bot", reply_markup=menu)
 
-# ================= ADMIN DASHBOARD =================
+# ================= REFERRAL =================
 
-@dp.message(lambda m: m.text == "/admin")
-async def admin_dashboard(message: types.Message):
+@dp.message(lambda m: m.text == "👥 Referral")
+async def referral(message: types.Message):
 
-    if message.from_user.id != ADMIN_ID:
-        return
+    link = f"https://t.me/{(await bot.me()).username}?start={message.from_user.id}"
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    total_users = cursor.fetchone()[0]
+    await message.answer(
+        f"""
+👥 Referral System
+Your Link:
+{link}
 
-    cursor.execute("SELECT SUM(points) FROM users")
-    total_points = cursor.fetchone()[0] or 0
-
-    cursor.execute(
-        "SELECT user_id, points FROM users ORDER BY points DESC LIMIT 5"
-    )
-    top_users = cursor.fetchall()
-
-    text = f"""
-🛠 ADMIN PANEL
-
-👥 Users: {total_users}
-💰 Total Points: {total_points}
-
-🏆 Top Users:
+Earn {REF_REWARD} points per referral
 """
-
-    for i, row in enumerate(top_users, start=1):
-        text += f"{i}. {row[0]} — {row[1]} pts\n"
-
-    await message.answer(text)
+    )
 
 # ================= BALANCE =================
 
 @dp.message(lambda m: m.text == "💰 Balance")
 async def balance(message: types.Message):
 
-    cursor.execute(
-        "SELECT points FROM users WHERE user_id=?",
-        (message.from_user.id,)
-    )
+    cursor.execute("SELECT points FROM users WHERE user_id=?",
+                   (message.from_user.id,))
 
     data = cursor.fetchone()
     points = data[0] if data else 0
@@ -198,22 +188,16 @@ async def giveaway(message: types.Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"🎬 Netflix ({PRIZES['netflix']} pts)",
-                callback_data="prize_netflix"
-            )],
-            [InlineKeyboardButton(
-                text=f"📱 WhatsApp ({PRIZES['whatsapp']} pts)",
-                callback_data="prize_whatsapp"
-            )],
-            [InlineKeyboardButton(
-                text=f"📞 Airtime ({PRIZES['airtime']} pts)",
-                callback_data="prize_airtime"
-            )]
+            [InlineKeyboardButton(text=f"🎬 Netflix ({PRIZE_COSTS['netflix']} pts)",
+                                  callback_data="prize_netflix")],
+            [InlineKeyboardButton(text=f"📱 WhatsApp Number ({PRIZE_COSTS['whatsapp']} pts)",
+                                  callback_data="prize_whatsapp")],
+            [InlineKeyboardButton(text=f"📞 Airtime ({PRIZE_COSTS['airtime']} pts)",
+                                  callback_data="prize_airtime")]
         ]
     )
 
-    await message.answer("🎁 Choose prize:", reply_markup=kb)
+    await message.answer("🎁 Select Prize", reply_markup=kb)
 
 # ================= PRIZE REQUEST =================
 
@@ -223,12 +207,10 @@ async def prize_request(call: types.CallbackQuery):
     user_id = call.from_user.id
     prize = call.data.split("_")[1]
 
-    cost = PRIZES.get(prize, 0)
+    cost = PRIZE_COSTS[prize]
 
     cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
-    data = cursor.fetchone()
-
-    points = data[0] if data else 0
+    points = cursor.fetchone()[0]
 
     if points < cost:
         await call.answer("❌ Not enough points", show_alert=True)
@@ -239,54 +221,61 @@ async def prize_request(call: types.CallbackQuery):
         (cost, user_id)
     )
 
+    cursor.execute(
+        "INSERT INTO prize_requests(user_id,prize) VALUES(?,?)",
+        (user_id, prize)
+    )
+
     conn.commit()
 
     await bot.send_message(
         ADMIN_ID,
         f"""
-📩 Prize Request
-
+🎁 Prize Request
 User: {user_id}
 Prize: {prize}
-Cost: {cost}
 """
     )
 
-    await bot.send_message(user_id, "⏳ Request sent to developer")
+    await call.message.answer("⏳ Request sent to admin")
 
-# ================= REFERRAL =================
+# ================= ADMIN DASHBOARD =================
 
-@dp.message(lambda m: m.text == "👥 Referral")
-async def referral(message: types.Message):
+@dp.message(lambda m: m.text == "/admin")
+async def admin_panel(message: types.Message):
 
-    link = f"https://t.me/{(await bot.me()).username}?start={message.from_user.id}"
+    if message.from_user.id != ADMIN_ID:
+        return
 
-    await message.answer(f"""
-👥 Referral System
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
 
-Your link:
-{link}
+    cursor.execute("SELECT SUM(points) FROM users")
+    total_points = cursor.fetchone()[0] or 0
 
-🎁 Earn {REF_REWARD} points per referral
-""")
+    cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 5")
+    top_users = cursor.fetchall()
 
-# ================= LEADERBOARD =================
+    text = f"""
+👨‍💻 ADMIN DASHBOARD
 
-@dp.message(lambda m: m.text == "🏆 Leaderboard")
-async def leaderboard(message: types.Message):
+👥 Users: {total_users}
+💰 Total Points: {total_points}
 
-    cursor.execute(
-        "SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10"
+🏆 Top Users:
+"""
+
+    for i, u in enumerate(top_users, 1):
+        text += f"{i}. {u[0]} — {u[1]} pts\n"
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Add Points", callback_data="admin_addpoints")],
+            [InlineKeyboardButton(text="📦 View Requests", callback_data="admin_requests")]
+        ]
     )
 
-    data = cursor.fetchall()
-
-    text = "🏆 Leaderboard\n\n"
-
-    for i, row in enumerate(data, start=1):
-        text += f"{i}. {row[0]} — {row[1]} pts\n"
-
-    await message.answer(text)
+    await message.answer(text, reply_markup=kb)
 
 # ================= RUN =================
 
