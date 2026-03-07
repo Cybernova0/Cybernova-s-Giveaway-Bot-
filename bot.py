@@ -10,7 +10,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
-
 from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
@@ -74,7 +73,7 @@ menu = ReplyKeyboardMarkup(
 
 # ================= FORCE JOIN =================
 
-async def check_sub(user_id):
+async def check_sub(user_id: int):
     try:
         for channel in CHANNELS:
             member = await bot.get_chat_member(channel, user_id)
@@ -86,7 +85,7 @@ async def check_sub(user_id):
 
 
 def join_kb():
-    kb = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -102,12 +101,10 @@ def join_kb():
             ]
         ]
     )
-    return kb
-
 
 # ================= START =================
 
-@dp.message(lambda m: m.text == "/start")
+@dp.message(lambda m: m.text.startswith("/start"))
 async def start(message: types.Message):
 
     user_id = message.from_user.id
@@ -118,6 +115,7 @@ async def start(message: types.Message):
 
     if not user:
         ref = None
+
         if len(args) > 1 and args[1].isdigit():
             ref = int(args[1])
 
@@ -150,21 +148,15 @@ async def start(message: types.Message):
         reply_markup=menu
     )
 
-
 # ================= CHECK SUB =================
 
 @dp.callback_query(lambda c: c.data == "checksub")
 async def checksub(call: types.CallbackQuery):
 
     if await check_sub(call.from_user.id):
-        await bot.send_message(
-            call.from_user.id,
-            "✅ Verified",
-            reply_markup=menu
-        )
+        await call.message.answer("✅ Verified", reply_markup=menu)
     else:
         await call.answer("❌ Not joined", show_alert=True)
-
 
 # ================= BALANCE =================
 
@@ -181,7 +173,6 @@ async def balance(message: types.Message):
 
     await message.answer(f"💰 Points: {points}")
 
-
 # ================= GIVEAWAY =================
 
 @dp.message(lambda m: m.text == "🎁 Giveaway")
@@ -197,7 +188,6 @@ async def giveaway(message: types.Message):
 
     await message.answer("Choose reward", reply_markup=kb)
 
-
 # ================= REWARD =================
 
 @dp.callback_query(lambda c: c.data.startswith("reward_"))
@@ -206,8 +196,13 @@ async def reward(call: types.CallbackQuery):
     user_id = call.from_user.id
     amount = int(call.data.split("_")[1])
 
-    cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
-    points = cursor.fetchone()[0]
+    cursor.execute(
+        "SELECT points FROM users WHERE user_id=?",
+        (user_id,)
+    )
+
+    data = cursor.fetchone()
+    points = data[0] if data else 0
 
     if points < amount:
         await call.answer("❌ Not enough points", show_alert=True)
@@ -230,7 +225,6 @@ Points Used: {amount}
     )
 
     await bot.send_message(user_id, "⏳ Request sent to admin")
-
 
 # ================= REDEEM =================
 
@@ -267,7 +261,6 @@ async def redeem(message: types.Message):
 
     await message.answer(f"✅ Redeemed {reward} points")
 
-
 # ================= ADMIN =================
 
 @dp.message(lambda m: m.text.startswith("/givepoints"))
@@ -291,12 +284,10 @@ async def givepoints(message: types.Message):
     except:
         await message.answer("Usage: /givepoints user_id points")
 
-
 # ================= RUN =================
 
 async def main():
-    await dp.start_polling(bot)
-
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
