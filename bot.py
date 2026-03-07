@@ -117,10 +117,13 @@ async def start(message: types.Message):
         if ref == user_id:
             ref = None
 
-        cursor.execute("INSERT INTO users(user_id,ref) VALUES(?,?)",
-                       (user_id, ref))
+        cursor.execute(
+            "INSERT INTO users(user_id,ref) VALUES(?,?)",
+            (user_id, ref)
+        )
         conn.commit()
 
+        # Referral reward
         if ref:
             cursor.execute(
                 "SELECT * FROM used_ref WHERE user_id=?",
@@ -150,7 +153,7 @@ async def start(message: types.Message):
 
 @dp.message(lambda m: m.text == "👨‍💻 Contact Developer")
 async def contact_dev(message: types.Message):
-    await message.answer("👨‍💻 Developer: https://t.me/Cybernova_io")
+    await message.answer("👨‍💻 Developer: @Cybernova_io")
 
 # ================= REF =================
 
@@ -174,8 +177,10 @@ Earn {REF_REWARD} points per referral
 @dp.message(lambda m: m.text == "💰 Balance")
 async def balance(message: types.Message):
 
-    cursor.execute("SELECT points FROM users WHERE user_id=?",
-                   (message.from_user.id,))
+    cursor.execute(
+        "SELECT points FROM users WHERE user_id=?",
+        (message.from_user.id,)
+    )
 
     data = cursor.fetchone()
     points = data[0] if data else 0
@@ -210,8 +215,13 @@ async def prize_request(call: types.CallbackQuery):
 
     cost = PRIZE_COSTS[prize]
 
-    cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
-    points = cursor.fetchone()[0]
+    cursor.execute(
+        "SELECT points FROM users WHERE user_id=?",
+        (user_id,)
+    )
+
+    data = cursor.fetchone()
+    points = data[0] if data else 0
 
     if points < cost:
         await call.answer("❌ Not enough points", show_alert=True)
@@ -254,20 +264,24 @@ async def admin_dashboard(message: types.Message):
     cursor.execute("SELECT SUM(points) FROM users")
     total_points = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT user_id,points FROM users ORDER BY points DESC LIMIT 5")
-    top = cursor.fetchall()
-
     text = f"""
-📊 ADMIN DASHBOARD
+👨‍💻 ADMIN PANEL
 
 👥 Users: {users}
 💰 Total Points: {total_points}
-
-🏆 Top Users:
 """
 
-    for i,u in enumerate(top,1):
-        text += f"{i}. {u[0]} — {u[1]} pts\n"
+    # Show pending requests
+    cursor.execute(
+        "SELECT id,user_id,prize FROM prize_requests WHERE status='pending'"
+    )
+
+    reqs = cursor.fetchall()
+
+    if reqs:
+        text += "\n📦 Pending Requests:\n"
+        for r in reqs:
+            text += f"{r[0]} | User {r[1]} | {r[2]}\n"
 
     await message.answer(text)
 
