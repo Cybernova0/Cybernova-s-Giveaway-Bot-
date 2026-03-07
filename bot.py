@@ -20,9 +20,9 @@ CHANNELS = [
 REF_REWARD = 2
 
 PRIZE_COSTS = {
-    "netflix": 50,
-    "whatsapp": 40,
-    "airtime": 20
+    "Netflix Acc": 50,
+    "Whatsapp Number": 40,
+    "Prime Video": 20
 }
 
 # ================= INIT =================
