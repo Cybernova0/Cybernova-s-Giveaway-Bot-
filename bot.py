@@ -28,6 +28,7 @@ PRIZE_COSTS = {
 # ================= INIT =================
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 bot = Bot(
     token=TOKEN,
@@ -35,6 +36,7 @@ bot = Bot(
 )
 
 dp = Dispatcher()
+BOT_USERNAME = None
 
 # ================= DATABASE =================
 
@@ -68,14 +70,20 @@ conn.commit()
 
 # ================= MENU =================
 
-menu = ReplyKeyboardMarkup(
-    keyboard=[
+def get_menu(user_id):
+
+    keyboard = [
         [KeyboardButton(text="💰 Balance"), KeyboardButton(text="🎁 Giveaway")],
-        [KeyboardButton(text="👥 Referral"), KeyboardButton(text="👨‍💻 Contact Developer")],
-        [KeyboardButton(text="📊 Admin Dashboard")]
-    ],
-    resize_keyboard=True
-)
+        [KeyboardButton(text="👥 Referral"), KeyboardButton(text="👨‍💻 Contact Developer")]
+    ]
+
+    if user_id == ADMIN_ID:
+        keyboard.append([KeyboardButton(text="📊 Admin Dashboard")])
+
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
+        resize_keyboard=True
+    )
 
 # ================= HELPERS =================
 
@@ -93,12 +101,13 @@ async def check_sub(user_id):
 def join_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Join Channel", url="https://t.me/HackingToolshere")],
+            [InlineKeyboardButton(text="📢 Channel 1", url="https://t.me/HackingToolshere")],
+            [InlineKeyboardButton(text="📢 Channel 2", url="https://t.me/CYBERNOVA0")],
             [InlineKeyboardButton(text="✅ Check", callback_data="checksub")]
         ]
     )
 
-# ================= CHECK SUB BUTTON =================
+# ================= CHECK SUB =================
 
 @dp.callback_query(F.data == "checksub")
 async def check_subscription(call: types.CallbackQuery):
@@ -106,9 +115,12 @@ async def check_subscription(call: types.CallbackQuery):
     user_id = call.from_user.id
 
     if await check_sub(user_id):
-        await call.message.answer("✅ Subscription verified!", reply_markup=menu)
+        await call.message.answer(
+            "✅ Subscription verified!",
+            reply_markup=get_menu(user_id)
+        )
     else:
-        await call.answer("❌ You must join the channels first", show_alert=True)
+        await call.answer("❌ Join all channels first", show_alert=True)
 
 # ================= START =================
 
@@ -122,6 +134,7 @@ async def start(message: types.Message):
     user = cursor.fetchone()
 
     if not user:
+
         ref = None
 
         if len(args) > 1 and args[1].isdigit():
@@ -137,7 +150,12 @@ async def start(message: types.Message):
         conn.commit()
 
         if ref:
-            cursor.execute("SELECT * FROM used_ref WHERE user_id=?", (user_id,))
+
+            cursor.execute(
+                "SELECT * FROM used_ref WHERE user_id=?",
+                (user_id,)
+            )
+
             if not cursor.fetchone():
 
                 cursor.execute(
@@ -153,10 +171,16 @@ async def start(message: types.Message):
                 conn.commit()
 
     if not await check_sub(user_id):
-        await message.answer("❌ Join the channels first", reply_markup=join_kb())
+        await message.answer(
+            "❌ Join all channels first",
+            reply_markup=join_kb()
+        )
         return
 
-    await message.answer("🎉 Welcome to Giveaway Bot", reply_markup=menu)
+    await message.answer(
+        "🎉 Welcome to Giveaway Bot",
+        reply_markup=get_menu(user_id)
+    )
 
 # ================= CONTACT DEV =================
 
@@ -169,9 +193,7 @@ async def contact_dev(message: types.Message):
 @dp.message(F.text == "👥 Referral")
 async def referral(message: types.Message):
 
-    bot_info = await bot.me()
-
-    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
+    link = f"https://t.me/{BOT_USERNAME}?start={message.from_user.id}"
 
     await message.answer(f"""
 👥 Referral System
@@ -204,17 +226,9 @@ async def giveaway(message: types.Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"🎬 Netflix ({PRIZE_COSTS['netflix']} pts)",
-                callback_data="prize_netflix")],
-
-            [InlineKeyboardButton(
-                text=f"📱 WhatsApp Number ({PRIZE_COSTS['whatsapp']} pts)",
-                callback_data="prize_whatsapp")],
-
-            [InlineKeyboardButton(
-                text=f"📞 Airtime ({PRIZE_COSTS['airtime']} pts)",
-                callback_data="prize_airtime")]
+            [InlineKeyboardButton(text=f"🎬 Netflix ({PRIZE_COSTS['netflix']} pts)", callback_data="prize_netflix")],
+            [InlineKeyboardButton(text=f"📱 WhatsApp Number ({PRIZE_COSTS['whatsapp']} pts)", callback_data="prize_whatsapp")],
+            [InlineKeyboardButton(text=f"📞 Airtime ({PRIZE_COSTS['airtime']} pts)", callback_data="prize_airtime")]
         ]
     )
 
@@ -228,13 +242,13 @@ async def prize_request(call: types.CallbackQuery):
     user_id = call.from_user.id
     prize = call.data.split("_")[1]
 
+    if prize not in PRIZE_COSTS:
+        await call.answer("Invalid prize", show_alert=True)
+        return
+
     cost = PRIZE_COSTS[prize]
 
-    cursor.execute(
-        "SELECT points FROM users WHERE user_id=?",
-        (user_id,)
-    )
-
+    cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
     data = cursor.fetchone()
     points = data[0] if data else 0
 
@@ -275,9 +289,7 @@ async def admin_dashboard(message: types.Message):
     cursor.execute("SELECT SUM(points) FROM users")
     total_points = cursor.fetchone()[0] or 0
 
-    cursor.execute(
-        "SELECT user_id,points FROM users ORDER BY points DESC LIMIT 5"
-    )
+    cursor.execute("SELECT user_id,points FROM users ORDER BY points DESC LIMIT 5")
     top = cursor.fetchall()
 
     text = f"""
@@ -300,7 +312,7 @@ async def admin_dashboard(message: types.Message):
 
     await message.answer(text, reply_markup=kb)
 
-# ================= ADD POINTS SYSTEM =================
+# ================= ADD POINTS =================
 
 waiting_for_points = {}
 
@@ -324,9 +336,16 @@ async def receive_points(message: types.Message):
     try:
 
         uid, pts = message.text.split()
-
         uid = int(uid)
         pts = int(pts)
+
+        cursor.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+        user = cursor.fetchone()
+
+        if not user:
+            await message.answer("❌ User not found")
+            waiting_for_points[message.from_user.id] = False
+            return
 
         cursor.execute(
             "UPDATE users SET points = points + ? WHERE user_id = ?",
@@ -345,8 +364,16 @@ async def receive_points(message: types.Message):
 # ================= RUN =================
 
 async def main():
-    print("🚀 Bot Started Successfully")
+
+    global BOT_USERNAME
+
+    me = await bot.get_me()
+    BOT_USERNAME = me.username
+
+    logger.info("🚀 Bot Started Successfully")
+
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
