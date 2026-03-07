@@ -3,7 +3,7 @@ import logging
 import sqlite3
 import asyncio
 
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import *
 from aiogram.client.default import DefaultBotProperties
 
@@ -20,9 +20,9 @@ CHANNELS = [
 REF_REWARD = 2
 
 PRIZE_COSTS = {
-    "Netflix Acc": 50,
-    "Whatsapp Number": 40,
-    "Prime Video": 20
+    "netflix": 50,
+    "whatsapp": 40,
+    "airtime": 20
 }
 
 # ================= INIT =================
@@ -99,7 +99,7 @@ def join_kb():
 
 # ================= START =================
 
-@dp.message(lambda m: m.text.startswith("/start"))
+@dp.message(F.text.startswith("/start"))
 async def start(message: types.Message):
 
     user_id = message.from_user.id
@@ -117,19 +117,13 @@ async def start(message: types.Message):
         if ref == user_id:
             ref = None
 
-        cursor.execute(
-            "INSERT INTO users(user_id,ref) VALUES(?,?)",
-            (user_id, ref)
-        )
+        cursor.execute("INSERT INTO users(user_id,ref) VALUES(?,?)",
+                       (user_id, ref))
         conn.commit()
 
-        # Referral reward
+        # referral reward once
         if ref:
-            cursor.execute(
-                "SELECT * FROM used_ref WHERE user_id=?",
-                (user_id,)
-            )
-
+            cursor.execute("SELECT * FROM used_ref WHERE user_id=?", (user_id,))
             if not cursor.fetchone():
                 cursor.execute(
                     "UPDATE users SET points=points+? WHERE user_id=?",
@@ -151,36 +145,33 @@ async def start(message: types.Message):
 
 # ================= CONTACT DEV =================
 
-@dp.message(lambda m: m.text == "👨‍💻 Contact Developer")
+@dp.message(F.text == "👨‍💻 Contact Developer")
 async def contact_dev(message: types.Message):
     await message.answer("👨‍💻 Developer: @Cybernova_io")
 
 # ================= REF =================
 
-@dp.message(lambda m: m.text == "👥 Referral")
+@dp.message(F.text == "👥 Referral")
 async def referral(message: types.Message):
 
     link = f"https://t.me/{(await bot.me()).username}?start={message.from_user.id}"
 
-    await message.answer(
-        f"""
+    await message.answer(f"""
 👥 Referral System
+
 Your Link:
 {link}
 
 Earn {REF_REWARD} points per referral
-"""
-    )
+""")
 
 # ================= BALANCE =================
 
-@dp.message(lambda m: m.text == "💰 Balance")
+@dp.message(F.text == "💰 Balance")
 async def balance(message: types.Message):
 
-    cursor.execute(
-        "SELECT points FROM users WHERE user_id=?",
-        (message.from_user.id,)
-    )
+    cursor.execute("SELECT points FROM users WHERE user_id=?",
+                   (message.from_user.id,))
 
     data = cursor.fetchone()
     points = data[0] if data else 0
@@ -189,14 +180,14 @@ async def balance(message: types.Message):
 
 # ================= GIVEAWAY =================
 
-@dp.message(lambda m: m.text == "🎁 Giveaway")
+@dp.message(F.text == "🎁 Giveaway")
 async def giveaway(message: types.Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=f"🎬 Netflix ({PRIZE_COSTS['netflix']} pts)",
                                   callback_data="prize_netflix")],
-            [InlineKeyboardButton(text=f"📱 WhatsApp ({PRIZE_COSTS['whatsapp']} pts)",
+            [InlineKeyboardButton(text=f"📱 WhatsApp Number ({PRIZE_COSTS['whatsapp']} pts)",
                                   callback_data="prize_whatsapp")],
             [InlineKeyboardButton(text=f"📞 Airtime ({PRIZE_COSTS['airtime']} pts)",
                                   callback_data="prize_airtime")]
@@ -207,7 +198,7 @@ async def giveaway(message: types.Message):
 
 # ================= PRIZE REQUEST =================
 
-@dp.callback_query(lambda c: c.data.startswith("prize_"))
+@dp.callback_query(F.data.startswith("prize_"))
 async def prize_request(call: types.CallbackQuery):
 
     user_id = call.from_user.id
@@ -215,13 +206,8 @@ async def prize_request(call: types.CallbackQuery):
 
     cost = PRIZE_COSTS[prize]
 
-    cursor.execute(
-        "SELECT points FROM users WHERE user_id=?",
-        (user_id,)
-    )
-
-    data = cursor.fetchone()
-    points = data[0] if data else 0
+    cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
+    points = cursor.fetchone()[0]
 
     if points < cost:
         await call.answer("❌ Not enough points", show_alert=True)
@@ -252,7 +238,7 @@ Prize: {prize}
 
 # ================= ADMIN DASHBOARD =================
 
-@dp.message(lambda m: m.text == "📊 Admin Dashboard")
+@dp.message(F.text == "📊 Admin Dashboard")
 async def admin_dashboard(message: types.Message):
 
     if message.from_user.id != ADMIN_ID:
@@ -264,31 +250,64 @@ async def admin_dashboard(message: types.Message):
     cursor.execute("SELECT SUM(points) FROM users")
     total_points = cursor.fetchone()[0] or 0
 
+    cursor.execute("SELECT user_id,points FROM users ORDER BY points DESC LIMIT 5")
+    top = cursor.fetchall()
+
     text = f"""
-👨‍💻 ADMIN PANEL
+📊 ADMIN DASHBOARD
 
 👥 Users: {users}
 💰 Total Points: {total_points}
+
+🏆 Top Users:
 """
 
-    # Show pending requests
-    cursor.execute(
-        "SELECT id,user_id,prize FROM prize_requests WHERE status='pending'"
+    for i,u in enumerate(top,1):
+        text += f"{i}. {u[0]} — {u[1]} pts\n"
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Add Points", callback_data="admin_add_points")],
+            [InlineKeyboardButton(text="📦 View Requests", callback_data="admin_requests")]
+        ]
     )
 
-    reqs = cursor.fetchall()
+    await message.answer(text, reply_markup=kb)
 
-    if reqs:
-        text += "\n📦 Pending Requests:\n"
-        for r in reqs:
-            text += f"{r[0]} | User {r[1]} | {r[2]}\n"
+# ================= ADD POINTS =================
 
-    await message.answer(text)
+@dp.callback_query(F.data == "admin_add_points")
+async def admin_add_points(call: types.CallbackQuery):
+
+    if call.from_user.id != ADMIN_ID:
+        return
+
+    await call.message.answer("Send: <code>user_id points</code>")
+
+    @dp.message(F.from_user.id == ADMIN_ID)
+    async def receive_points(message: types.Message):
+
+        try:
+            uid, pts = message.text.split()
+            uid = int(uid)
+            pts = int(pts)
+
+            cursor.execute(
+                "UPDATE users SET points=points+? WHERE user_id=?",
+                (pts, uid)
+            )
+
+            conn.commit()
+
+            await message.answer(f"✅ Added {pts} points to {uid}")
+
+        except:
+            await message.answer("❌ Use format: user_id points")
 
 # ================= RUN =================
 
 async def main():
-    await dp.start_polling(bot, drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
