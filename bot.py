@@ -4,12 +4,7 @@ import sqlite3
 import asyncio
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
@@ -22,7 +17,13 @@ CHANNELS = [
     "@CYBERNOVA0"
 ]
 
-REF_REWARD = 10
+REF_REWARD = 2   # ⭐ Referral reward changed to 2 points
+
+# Giveaway cost
+PRIZES = {
+    "netflix": 20,
+    "whatsapp": 15
+}
 
 # ================= INIT =================
 
@@ -54,27 +55,14 @@ user_id INTEGER PRIMARY KEY
 )
 """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS redeem_codes(
-code TEXT PRIMARY KEY,
-reward INTEGER
-)
-""")
-
 conn.commit()
 
-# ================= MENU =================
+# ================= MENUS =================
 
 menu = ReplyKeyboardMarkup(
     keyboard=[
-        [
-            KeyboardButton(text="💰 Balance"),
-            KeyboardButton(text="🎁 Giveaway")
-        ],
-        [
-            KeyboardButton(text="👥 Referral"),
-            KeyboardButton(text="🏆 Leaderboard")
-        ]
+        [KeyboardButton(text="💰 Balance"), KeyboardButton(text="🎁 Giveaway")],
+        [KeyboardButton(text="👥 Referral")]
     ],
     resize_keyboard=True
 )
@@ -94,18 +82,8 @@ async def check_sub(user_id: int):
 def join_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📢 Join Channels",
-                    url="https://t.me/HackingToolshere"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="✅ Check",
-                    callback_data="checksub"
-                )
-            ]
+            [InlineKeyboardButton(text="📢 Join Channels", url="https://t.me/HackingToolshere")],
+            [InlineKeyboardButton(text="✅ Check", callback_data="checksub")]
         ]
     )
 
@@ -129,44 +107,22 @@ async def start(message: types.Message):
         if ref == user_id:
             ref = None
 
-        cursor.execute(
-            "INSERT INTO users(user_id,ref) VALUES(?,?)",
-            (user_id, ref)
-        )
-
+        cursor.execute("INSERT INTO users(user_id,ref) VALUES(?,?)", (user_id, ref))
         conn.commit()
 
-        # Referral reward only once
+        # Referral reward (2 points only)
         if ref:
-            cursor.execute(
-                "SELECT * FROM used_ref WHERE user_id=?",
-                (user_id,)
-            )
-
+            cursor.execute("SELECT * FROM used_ref WHERE user_id=?", (user_id,))
             if not cursor.fetchone():
-                cursor.execute(
-                    "UPDATE users SET points=points+? WHERE user_id=?",
-                    (REF_REWARD, ref)
-                )
-
-                cursor.execute(
-                    "INSERT INTO used_ref(user_id) VALUES(?)",
-                    (user_id,)
-                )
-
+                cursor.execute("UPDATE users SET points=points+? WHERE user_id=?", (REF_REWARD, ref))
+                cursor.execute("INSERT INTO used_ref(user_id) VALUES(?)", (user_id,))
                 conn.commit()
 
     if not await check_sub(user_id):
-        await message.answer(
-            "❌ Join channels first",
-            reply_markup=join_kb()
-        )
+        await message.answer("❌ Join channels first", reply_markup=join_kb())
         return
 
-    await message.answer(
-        "🎉 Welcome Giveaway Bot",
-        reply_markup=menu
-    )
+    await message.answer("🎉 Welcome Giveaway Bot", reply_markup=menu)
 
 # ================= CHECK SUB =================
 
@@ -178,58 +134,32 @@ async def checksub(call: types.CallbackQuery):
     else:
         await call.answer("❌ Not joined", show_alert=True)
 
+# ================= BALANCE =================
+
+@dp.message(lambda m: m.text == "💰 Balance")
+async def balance(message: types.Message):
+
+    cursor.execute("SELECT points FROM users WHERE user_id=?", (message.from_user.id,))
+    data = cursor.fetchone()
+
+    points = data[0] if data else 0
+    await message.answer(f"💰 Points: {points}")
+
 # ================= REFERRAL =================
 
 @dp.message(lambda m: m.text == "👥 Referral")
 async def referral(message: types.Message):
 
-    user_id = message.from_user.id
+    link = f"https://t.me/{(await bot.me()).username}?start={message.from_user.id}"
 
-    link = f"https://t.me/{(await bot.me()).username}?start={user_id}"
-
-    await message.answer(
-        f"""
+    await message.answer(f"""
 👥 Referral System
 
 Your link:
 {link}
 
 🎁 Earn {REF_REWARD} points per referral
-"""
-    )
-
-# ================= LEADERBOARD =================
-
-@dp.message(lambda m: m.text == "🏆 Leaderboard")
-async def leaderboard(message: types.Message):
-
-    cursor.execute(
-        "SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10"
-    )
-
-    data = cursor.fetchall()
-
-    text = "🏆 Leaderboard\n\n"
-
-    for i, row in enumerate(data, start=1):
-        text += f"{i}. {row[0]} — {row[1]} pts\n"
-
-    await message.answer(text)
-
-# ================= BALANCE =================
-
-@dp.message(lambda m: m.text == "💰 Balance")
-async def balance(message: types.Message):
-
-    cursor.execute(
-        "SELECT points FROM users WHERE user_id=?",
-        (message.from_user.id,)
-    )
-
-    data = cursor.fetchone()
-    points = data[0] if data else 0
-
-    await message.answer(f"💰 Points: {points}")
+""")
 
 # ================= GIVEAWAY =================
 
@@ -238,86 +168,51 @@ async def giveaway(message: types.Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="reward_15")],
-            [InlineKeyboardButton(text="🎁 Gift Card", callback_data="reward_30")],
-            [InlineKeyboardButton(text="📱 Airtime", callback_data="reward_20")]
+            [InlineKeyboardButton(text="🎬 Netflix Account", callback_data="prize_netflix")],
+            [InlineKeyboardButton(text="📱 WhatsApp Number", callback_data="prize_whatsapp")]
         ]
     )
 
-    await message.answer("Choose reward", reply_markup=kb)
+    await message.answer("🎁 Choose prize (Request will be sent to admin)", reply_markup=kb)
 
-# ================= REWARD =================
+# ================= PRIZE REQUEST =================
 
-@dp.callback_query(lambda c: c.data.startswith("reward_"))
-async def reward(call: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data.startswith("prize_"))
+async def prize_request(call: types.CallbackQuery):
 
     user_id = call.from_user.id
-    amount = int(call.data.split("_")[1])
+    prize = call.data.split("_")[1]
 
-    cursor.execute(
-        "SELECT points FROM users WHERE user_id=?",
-        (user_id,)
-    )
-
+    cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
     data = cursor.fetchone()
+
     points = data[0] if data else 0
 
-    if points < amount:
+    cost = PRIZES.get(prize, 0)
+
+    if points < cost:
         await call.answer("❌ Not enough points", show_alert=True)
         return
 
     cursor.execute(
         "UPDATE users SET points=points-? WHERE user_id=?",
-        (amount, user_id)
+        (cost, user_id)
     )
-
     conn.commit()
 
+    # Send request to admin
     await bot.send_message(
         ADMIN_ID,
         f"""
-🎁 Reward Request
+🎁 Prize Request
+
 User: {user_id}
-Points Used: {amount}
+Prize: {prize}
+Cost Points: {cost}
 """
     )
 
-    await bot.send_message(user_id, "⏳ Request sent to admin")
-
-# ================= REDEEM =================
-
-@dp.message(lambda m: m.text.startswith("/redeem"))
-async def redeem(message: types.Message):
-
-    parts = message.text.split()
-
-    if len(parts) < 2:
-        await message.answer("Usage: /redeem CODE")
-        return
-
-    code = parts[1]
-
-    cursor.execute(
-        "SELECT reward FROM redeem_codes WHERE code=?",
-        (code,)
-    )
-
-    data = cursor.fetchone()
-
-    if not data:
-        await message.answer("❌ Invalid code")
-        return
-
-    reward = data[0]
-
-    cursor.execute(
-        "UPDATE users SET points=points+? WHERE user_id=?",
-        (reward, message.from_user.id)
-    )
-
-    conn.commit()
-
-    await message.answer(f"✅ Redeemed {reward} points")
+    await bot.send_message(user_id, "⏳ Request sent to admin. Wait for prize delivery.")
 
 # ================= RUN =================
 
