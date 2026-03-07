@@ -10,15 +10,12 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
-from aiogram.filters import Command, Text
+
+from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
 
 TOKEN = os.environ.get("BOT_TOKEN")
-
-if TOKEN is None:
-    raise Exception("BOT_TOKEN not set in environment variables")
-
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "7334992081"))
 
 CHANNELS = [
@@ -32,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 
 bot = Bot(
     token=TOKEN,
-    default=types.bot_command.BotCommandScopeDefault()
+    default=DefaultBotProperties(parse_mode="HTML")
 )
 
 dp = Dispatcher()
@@ -59,30 +56,23 @@ reward INTEGER
 
 conn.commit()
 
-# ================= KEYBOARDS =================
+# ================= MENU =================
 
 menu = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="💰 Balance"), KeyboardButton(text="🎁 Giveaway")],
-        [KeyboardButton(text="👥 Referral"), KeyboardButton(text="🏆 Leaderboard")]
+        [
+            KeyboardButton(text="💰 Balance"),
+            KeyboardButton(text="🎁 Giveaway")
+        ],
+        [
+            KeyboardButton(text="👥 Referral"),
+            KeyboardButton(text="🏆 Leaderboard")
+        ]
     ],
     resize_keyboard=True
 )
 
-def join_kb():
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="📢 Join Channels",
-            url="https://t.me/HackingToolshere"
-        )],
-        [InlineKeyboardButton(
-            text="✅ Check",
-            callback_data="checksub"
-        )]
-    ])
-    return kb
-
-# ================= HELPERS =================
+# ================= FORCE JOIN =================
 
 async def check_sub(user_id):
     try:
@@ -94,10 +84,32 @@ async def check_sub(user_id):
     except:
         return False
 
-# ================= HANDLERS =================
 
-@dp.message(Command("start"))
-async def start_handler(message: types.Message):
+def join_kb():
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📢 Join Channels",
+                    url="https://t.me/HackingToolshere"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Check",
+                    callback_data="checksub"
+                )
+            ]
+        ]
+    )
+    return kb
+
+
+# ================= START =================
+
+@dp.message(lambda m: m.text == "/start")
+async def start(message: types.Message):
+
     user_id = message.from_user.id
     args = message.text.split()
 
@@ -113,9 +125,10 @@ async def start_handler(message: types.Message):
             ref = None
 
         cursor.execute(
-            "INSERT INTO users(user_id, ref) VALUES(?,?)",
+            "INSERT INTO users(user_id,ref) VALUES(?,?)",
             (user_id, ref)
         )
+
         conn.commit()
 
         if ref:
@@ -126,24 +139,38 @@ async def start_handler(message: types.Message):
             conn.commit()
 
     if not await check_sub(user_id):
-        await message.answer("❌ Please join channels first", reply_markup=join_kb())
+        await message.answer(
+            "❌ Join channels first",
+            reply_markup=join_kb()
+        )
         return
 
-    await message.answer("🎉 Welcome Giveaway Bot", reply_markup=menu)
+    await message.answer(
+        "🎉 Welcome Giveaway Bot",
+        reply_markup=menu
+    )
 
-# ================= CALLBACK =================
 
-@dp.callback_query(Text("checksub"))
-async def check_sub_callback(call: types.CallbackQuery):
+# ================= CHECK SUB =================
+
+@dp.callback_query(lambda c: c.data == "checksub")
+async def checksub(call: types.CallbackQuery):
+
     if await check_sub(call.from_user.id):
-        await call.message.answer("✅ Verified", reply_markup=menu)
+        await bot.send_message(
+            call.from_user.id,
+            "✅ Verified",
+            reply_markup=menu
+        )
     else:
         await call.answer("❌ Not joined", show_alert=True)
 
+
 # ================= BALANCE =================
 
-@dp.message(Text("💰 Balance"))
-async def balance_handler(message: types.Message):
+@dp.message(lambda m: m.text == "💰 Balance")
+async def balance(message: types.Message):
+
     cursor.execute(
         "SELECT points FROM users WHERE user_id=?",
         (message.from_user.id,)
@@ -154,29 +181,35 @@ async def balance_handler(message: types.Message):
 
     await message.answer(f"💰 Points: {points}")
 
+
 # ================= GIVEAWAY =================
 
-@dp.message(Text("🎁 Giveaway"))
-async def giveaway_handler(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="reward_15")],
-        [InlineKeyboardButton(text="🎁 Gift Card", callback_data="reward_30")],
-        [InlineKeyboardButton(text="📱 Airtime", callback_data="reward_20")]
-    ])
+@dp.message(lambda m: m.text == "🎁 Giveaway")
+async def giveaway(message: types.Message):
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="reward_15")],
+            [InlineKeyboardButton(text="🎁 Gift Card", callback_data="reward_30")],
+            [InlineKeyboardButton(text="📱 Airtime", callback_data="reward_20")]
+        ]
+    )
 
     await message.answer("Choose reward", reply_markup=kb)
 
+
 # ================= REWARD =================
 
-@dp.callback_query(Text(startswith="reward_"))
-async def reward_handler(call: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data.startswith("reward_"))
+async def reward(call: types.CallbackQuery):
+
     user_id = call.from_user.id
     amount = int(call.data.split("_")[1])
 
     cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
-    data = cursor.fetchone()
+    points = cursor.fetchone()[0]
 
-    if not data or data[0] < amount:
+    if points < amount:
         await call.answer("❌ Not enough points", show_alert=True)
         return
 
@@ -184,6 +217,7 @@ async def reward_handler(call: types.CallbackQuery):
         "UPDATE users SET points=points-? WHERE user_id=?",
         (amount, user_id)
     )
+
     conn.commit()
 
     await bot.send_message(
@@ -195,12 +229,74 @@ Points Used: {amount}
 """
     )
 
-    await call.message.answer("⏳ Request sent to admin")
+    await bot.send_message(user_id, "⏳ Request sent to admin")
+
+
+# ================= REDEEM =================
+
+@dp.message(lambda m: m.text.startswith("/redeem"))
+async def redeem(message: types.Message):
+
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        await message.answer("Usage: /redeem CODE")
+        return
+
+    code = parts[1]
+
+    cursor.execute(
+        "SELECT reward FROM redeem_codes WHERE code=?",
+        (code,)
+    )
+
+    data = cursor.fetchone()
+
+    if not data:
+        await message.answer("❌ Invalid code")
+        return
+
+    reward = data[0]
+
+    cursor.execute(
+        "UPDATE users SET points=points+? WHERE user_id=?",
+        (reward, message.from_user.id)
+    )
+
+    conn.commit()
+
+    await message.answer(f"✅ Redeemed {reward} points")
+
+
+# ================= ADMIN =================
+
+@dp.message(lambda m: m.text.startswith("/givepoints"))
+async def givepoints(message: types.Message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        _, uid, pts = message.text.split()
+
+        cursor.execute(
+            "UPDATE users SET points=points+? WHERE user_id=?",
+            (int(pts), int(uid))
+        )
+
+        conn.commit()
+
+        await message.answer("✅ Points given")
+
+    except:
+        await message.answer("Usage: /givepoints user_id points")
+
 
 # ================= RUN =================
 
 async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
