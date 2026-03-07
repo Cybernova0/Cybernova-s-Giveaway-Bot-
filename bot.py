@@ -4,12 +4,7 @@ import sqlite3
 import asyncio
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
+from aiogram.types import *
 from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
@@ -17,14 +12,10 @@ from aiogram.client.default import DefaultBotProperties
 TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "7334992081"))
 
-CHANNELS = [
-    "@HackingToolshere",
-    "@CYBERNOVA0"
-]
+CHANNELS = ["@HackingToolshere", "@CYBERNOVA0"]
 
 REF_REWARD = 2
 
-# Prize Costs
 PRIZE_COSTS = {
     "netflix": 50,
     "whatsapp": 40,
@@ -65,7 +56,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS prize_requests(
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 user_id INTEGER,
-prize TEXT
+prize TEXT,
+status TEXT DEFAULT 'pending'
 )
 """)
 
@@ -122,27 +114,21 @@ async def start(message: types.Message):
         if ref == user_id:
             ref = None
 
-        cursor.execute(
-            "INSERT INTO users(user_id,ref) VALUES(?,?)",
-            (user_id, ref)
-        )
+        cursor.execute("INSERT INTO users VALUES(?,?,?)",
+                       (user_id, 0, ref))
 
         conn.commit()
 
-        # Referral reward once
         if ref:
             cursor.execute("SELECT * FROM used_ref WHERE user_id=?", (user_id,))
             if not cursor.fetchone():
+
                 cursor.execute(
                     "UPDATE users SET points=points+? WHERE user_id=?",
                     (REF_REWARD, ref)
                 )
 
-                cursor.execute(
-                    "INSERT INTO used_ref(user_id) VALUES(?)",
-                    (user_id,)
-                )
-
+                cursor.execute("INSERT INTO used_ref VALUES(?)", (user_id,))
                 conn.commit()
 
     if not await check_sub(user_id):
@@ -161,6 +147,7 @@ async def referral(message: types.Message):
     await message.answer(
         f"""
 👥 Referral System
+
 Your Link:
 {link}
 
@@ -188,12 +175,18 @@ async def giveaway(message: types.Message):
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"🎬 Netflix ({PRIZE_COSTS['netflix']} pts)",
-                                  callback_data="prize_netflix")],
-            [InlineKeyboardButton(text=f"📱 WhatsApp Number ({PRIZE_COSTS['whatsapp']} pts)",
-                                  callback_data="prize_whatsapp")],
-            [InlineKeyboardButton(text=f"📞 Airtime ({PRIZE_COSTS['airtime']} pts)",
-                                  callback_data="prize_airtime")]
+            [InlineKeyboardButton(
+                text=f"🎬 Netflix ({PRIZE_COSTS['netflix']} pts)",
+                callback_data="prize_netflix"
+            )],
+            [InlineKeyboardButton(
+                text=f"📱 WhatsApp Number ({PRIZE_COSTS['whatsapp']} pts)",
+                callback_data="prize_whatsapp"
+            )],
+            [InlineKeyboardButton(
+                text=f"📞 Airtime ({PRIZE_COSTS['airtime']} pts)",
+                callback_data="prize_airtime"
+            )]
         ]
     )
 
@@ -231,7 +224,8 @@ async def prize_request(call: types.CallbackQuery):
     await bot.send_message(
         ADMIN_ID,
         f"""
-🎁 Prize Request
+🎁 New Prize Request
+
 User: {user_id}
 Prize: {prize}
 """
@@ -253,14 +247,14 @@ async def admin_panel(message: types.Message):
     cursor.execute("SELECT SUM(points) FROM users")
     total_points = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 5")
+    cursor.execute("SELECT user_id,points FROM users ORDER BY points DESC LIMIT 5")
     top_users = cursor.fetchall()
 
     text = f"""
 👨‍💻 ADMIN DASHBOARD
 
-👥 Users: {total_users}
-💰 Total Points: {total_points}
+Users: {total_users}
+Total Points: {total_points}
 
 🏆 Top Users:
 """
@@ -268,14 +262,30 @@ async def admin_panel(message: types.Message):
     for i, u in enumerate(top_users, 1):
         text += f"{i}. {u[0]} — {u[1]} pts\n"
 
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Add Points", callback_data="admin_addpoints")],
-            [InlineKeyboardButton(text="📦 View Requests", callback_data="admin_requests")]
-        ]
-    )
+    await message.answer(text)
 
-    await message.answer(text, reply_markup=kb)
+# ================= ADD POINTS =================
+
+@dp.message(lambda m: m.text.startswith("/addpoints"))
+async def add_points(message: types.Message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        _, uid, pts = message.text.split()
+
+        cursor.execute(
+            "UPDATE users SET points=points+? WHERE user_id=?",
+            (int(pts), int(uid))
+        )
+
+        conn.commit()
+
+        await message.answer("✅ Points added")
+
+    except:
+        await message.answer("Usage: /addpoints user_id points")
 
 # ================= RUN =================
 
