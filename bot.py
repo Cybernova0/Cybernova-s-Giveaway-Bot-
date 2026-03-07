@@ -4,9 +4,8 @@ import sqlite3
 import asyncio
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.client.default import DefaultBotProperties
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
+from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
 
@@ -73,16 +72,19 @@ async def check_sub(user_id):
     except:
         return False
 
+
 def join_kb():
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Join Channels", url="https://t.me/HackingToolshere")],
-        [InlineKeyboardButton(text="✅ Check", callback_data="checksub")]
-    ])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Join Channels", url="https://t.me/HackingToolshere")],
+            [InlineKeyboardButton(text="✅ Check", callback_data="checksub")]
+        ]
+    )
     return kb
 
 # ================= START =================
 
-@dp.message(Command("start"))
+@dp.message(lambda m: m.text and m.text.startswith("/start"))
 async def start(message: types.Message):
 
     user_id = message.from_user.id
@@ -93,6 +95,7 @@ async def start(message: types.Message):
 
     if not user:
         ref = None
+
         if len(args) > 1 and args[1].isdigit():
             ref = int(args[1])
 
@@ -100,9 +103,10 @@ async def start(message: types.Message):
             ref = None
 
         cursor.execute(
-            "INSERT INTO users(user_id,ref) VALUES(?,?)",
+            "INSERT INTO users(user_id, ref) VALUES(?,?)",
             (user_id, ref)
         )
+
         conn.commit()
 
         if ref:
@@ -124,7 +128,7 @@ async def start(message: types.Message):
 async def checksub(call: types.CallbackQuery):
 
     if await check_sub(call.from_user.id):
-        await bot.send_message(call.from_user.id, "✅ Verified", reply_markup=menu)
+        await call.message.answer("✅ Verified", reply_markup=menu)
     else:
         await call.answer("❌ Not joined", show_alert=True)
 
@@ -148,15 +152,17 @@ async def balance(message: types.Message):
 @dp.message(lambda m: m.text == "🎁 Giveaway")
 async def giveaway(message: types.Message):
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="reward_15")],
-        [InlineKeyboardButton(text="🎁 Gift Card", callback_data="reward_30")],
-        [InlineKeyboardButton(text="📱 Airtime", callback_data="reward_20")]
-    ])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="reward_15")],
+            [InlineKeyboardButton(text="🎁 Gift Card", callback_data="reward_30")],
+            [InlineKeyboardButton(text="📱 Airtime", callback_data="reward_20")]
+        ]
+    )
 
     await message.answer("Choose reward", reply_markup=kb)
 
-# ================= REWARD REQUEST =================
+# ================= REWARD =================
 
 @dp.callback_query(lambda c: c.data.startswith("reward_"))
 async def reward(call: types.CallbackQuery):
@@ -175,6 +181,7 @@ async def reward(call: types.CallbackQuery):
         "UPDATE users SET points=points-? WHERE user_id=?",
         (amount, user_id)
     )
+
     conn.commit()
 
     await bot.send_message(
@@ -190,15 +197,16 @@ Points Used: {amount}
 
 # ================= REDEEM =================
 
-@dp.message(Command("redeem"))
+@dp.message(lambda m: m.text and m.text.startswith("/redeem"))
 async def redeem(message: types.Message):
 
-    code = message.text.split(maxsplit=1)
-    if len(code) < 2:
-        await message.answer("Usage: /redeem CODE")
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        await message.answer("Usage: /redeem code")
         return
 
-    code = code[1]
+    code = parts[1]
 
     cursor.execute(
         "SELECT reward FROM redeem_codes WHERE code=?",
@@ -224,7 +232,7 @@ async def redeem(message: types.Message):
 
 # ================= ADMIN =================
 
-@dp.message(Command("stats"))
+@dp.message(lambda m: m.text and m.text.startswith("/stats"))
 async def stats(message: types.Message):
 
     if message.from_user.id != ADMIN_ID:
@@ -234,29 +242,6 @@ async def stats(message: types.Message):
     users = cursor.fetchone()[0]
 
     await message.answer(f"📊 Bot Stats\nUsers: {users}")
-
-@dp.message(Command("givepoints"))
-async def givepoints(message: types.Message):
-
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    try:
-        _, uid, pts = message.text.split()
-        uid = int(uid)
-        pts = int(pts)
-
-        cursor.execute(
-            "UPDATE users SET points=points+? WHERE user_id=?",
-            (pts, uid)
-        )
-
-        conn.commit()
-
-        await message.answer("✅ Points given")
-
-    except:
-        await message.answer("Usage: /givepoints user_id points")
 
 # ================= RUN =================
 
