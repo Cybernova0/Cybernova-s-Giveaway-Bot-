@@ -3,9 +3,9 @@ import logging
 import sqlite3
 import asyncio
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.client.default import DefaultBotProperties
 
 # ================= CONFIG =================
 
@@ -21,7 +21,11 @@ CHANNELS = [
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=TOKEN)
+bot = Bot(
+    token=TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
+
 dp = Dispatcher()
 
 # ================= DATABASE =================
@@ -76,22 +80,22 @@ def join_kb():
     ])
     return kb
 
+
 # ================= START =================
 
-@dp.message(Command("start"))
+@dp.message(F.text.startswith("/start"))
 async def start(message: types.Message):
+
     user_id = message.from_user.id
     args = message.text.split()
+
+    ref = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
 
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     user = cursor.fetchone()
 
     if not user:
-        ref = None
-        if len(args) > 1 and args[1].isdigit():
-            ref = int(args[1])
-
-        cursor.execute("INSERT INTO users VALUES(?,?,?)", (user_id, 0, ref))
+        cursor.execute("INSERT INTO users(user_id,ref) VALUES(?,?)", (user_id, ref))
         conn.commit()
 
         if ref:
@@ -107,20 +111,39 @@ async def start(message: types.Message):
 
     await message.answer("🎉 Welcome Giveaway Bot", reply_markup=menu)
 
+
+# ================= CHECK SUB =================
+
+@dp.callback_query(F.data == "checksub")
+async def checksub(call: types.CallbackQuery):
+
+    if await check_sub(call.from_user.id):
+        await bot.send_message(call.from_user.id, "✅ Verified", reply_markup=menu)
+    else:
+        await call.answer("❌ Not joined", show_alert=True)
+
+
 # ================= BALANCE =================
 
-@dp.message(lambda m: m.text == "💰 Balance")
+@dp.message(F.text == "💰 Balance")
 async def balance(message: types.Message):
-    cursor.execute("SELECT points FROM users WHERE user_id=?", (message.from_user.id,))
-    data = cursor.fetchone()
 
-    pts = data[0] if data else 0
-    await message.answer(f"💰 Points: {pts}")
+    cursor.execute(
+        "SELECT points FROM users WHERE user_id=?",
+        (message.from_user.id,)
+    )
+
+    data = cursor.fetchone()
+    points = data[0] if data else 0
+
+    await message.answer(f"💰 Points: {points}")
+
 
 # ================= GIVEAWAY =================
 
-@dp.message(lambda m: m.text == "🎁 Giveaway")
+@dp.message(F.text == "🎁 Giveaway")
 async def giveaway(message: types.Message):
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="reward_15")],
         [InlineKeyboardButton(text="🎁 Gift Card", callback_data="reward_30")],
@@ -129,10 +152,10 @@ async def giveaway(message: types.Message):
 
     await message.answer("Choose reward", reply_markup=kb)
 
-# ================= REWARD REQUEST =================
 
-@dp.callback_query(lambda c: c.data.startswith("reward_"))
+@dp.callback_query(F.data.startswith("reward_"))
 async def reward(call: types.CallbackQuery):
+
     user_id = call.from_user.id
     amount = int(call.data.split("_")[1])
 
@@ -147,22 +170,37 @@ async def reward(call: types.CallbackQuery):
         "UPDATE users SET points=points-? WHERE user_id=?",
         (amount, user_id)
     )
+
     conn.commit()
 
     await bot.send_message(
         ADMIN_ID,
-        f"🎁 Reward request\nUser: {user_id}\nPoints Used: {amount}"
+        f"""
+🎁 Reward Request
+User: {user_id}
+Points Used: {amount}
+"""
     )
 
-    await call.message.answer("⏳ Request sent to admin")
+    await bot.send_message(user_id, "⏳ Request sent to admin")
+
 
 # ================= REDEEM =================
 
-@dp.message(Command("redeem"))
+@dp.message(F.text.startswith("/redeem"))
 async def redeem(message: types.Message):
-    code = message.get_args()
 
-    cursor.execute("SELECT reward FROM redeem_codes WHERE code=?", (code,))
+    code = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
+
+    if not code:
+        await message.answer("Usage: /redeem CODE")
+        return
+
+    cursor.execute(
+        "SELECT reward FROM redeem_codes WHERE code=?",
+        (code,)
+    )
+
     data = cursor.fetchone()
 
     if not data:
@@ -180,10 +218,72 @@ async def redeem(message: types.Message):
 
     await message.answer(f"✅ Redeemed {reward} points")
 
+
+# ================= ADMIN =================
+
+@dp.message(F.text.startswith("/stats"))
+async def stats(message: types.Message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    cursor.execute("SELECT COUNT(*) FROM users")
+    users = cursor.fetchone()[0]
+
+    await message.answer(f"📊 Users: {users}")
+
+
+@dp.message(F.text.startswith("/givepoints"))
+async def givepoints(message: types.Message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        _, uid, pts = message.text.split()
+        uid = int(uid)
+        pts = int(pts)
+
+        cursor.execute(
+            "UPDATE users SET points=points+? WHERE user_id=?",
+            (pts, uid)
+        )
+
+        conn.commit()
+
+        await message.answer("✅ Points given")
+
+    except:
+        await message.answer("Usage: /givepoints user_id points")
+
+
+@dp.message(F.text.startswith("/redeemcreate"))
+async def create_redeem(message: types.Message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        _, code, reward = message.text.split()
+
+        cursor.execute(
+            "INSERT INTO redeem_codes VALUES(?,?)",
+            (code, int(reward))
+        )
+
+        conn.commit()
+
+        await message.answer("✅ Redeem code created")
+
+    except:
+        await message.answer("Usage: /redeemcreate code reward")
+
+
 # ================= RUN =================
 
 async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
